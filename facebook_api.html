@@ -1,0 +1,240 @@
+<html>
+	<body>
+		<p id="text">Testing</p>
+		<p id="chat">chat<br></p>
+
+		<table id="fbtable" width=500 border=1 style="border-collapse: collapse">
+		
+		</table>
+		
+		<textarea id="texta" rows="5" cols="100"></textarea>
+		<button onclick="selectText()" id="textAreaButton">Select all</button>
+		
+		<script>
+			var chat = document.getElementById("chat");
+			var table = document.getElementById("fbtable");
+			var textarea = document.getElementById("texta");
+			var chats = {};
+			var currentChunk = 1;
+			var wantnum = 0;
+			var lastcomplete = true;
+			
+            function selectText() {
+                textarea.select();
+            }
+            
+			window.fbAsyncInit = function() {
+				FB.init({
+					appId      : '<YOUR_API_KEY>',
+					xfbml      : true,
+					version    : 'v2.3'
+				});
+				
+				var selfname;
+                var selfId;
+                
+				FB.login(function(response) {
+					FB.api('me',
+                    function (response) {
+                        if (response && !response.error) {
+                            selfname = response["name"];
+                        }
+                    });
+                    
+                    FB.api('me/threads?fields=message_count,participants&limit=1000',
+                    function (response) {
+                        if (response && !response.error) {
+                            let data = response["data"];
+                            
+                            //Creates row for each chat
+                            for(var i = 0; i < data.length; i++) {
+                                addMessageCountWithData(data[i]);
+                            }
+                        }
+                    });
+                        
+                    /*//Downloads a chunk of the message
+                    function getChatFromAPI(i, from) {
+                        FB.api('' + chats[i]["id"] + '?fields=messages.offset(' + from * 100 + ').limit(100)',
+                        function (res) {
+                            if (res && !res.error) {
+                                var mes = "";
+                                for(var j = 0; j < res["messages"]["data"].length; j++) {
+                                    mes += res["messages"]["data"][j]["created_time"] + " " +
+                                        res["messages"]["data"][j]["from"]["name"] + ": " + res["messages"]["data"][j]["message"] + "\n";
+                                }	
+                                textarea.value += mes;
+                                console.log(currentChunk + "/" + wantnum);
+                                
+                                if(currentChunk == wantnum)
+                                    alert("Done!");
+                                else {
+                                    ++currentChunk;
+                                    
+                                    getChatFromAPI(i, from + 1);
+                                }
+                            }
+                        });	
+                    }*/
+                    
+                    class Chat {
+                        constructor(participants, id) {
+                            this.participants = participants;
+                            this.id = id;
+                            this.messages = [];
+                        }
+                        
+                        addAndCont(url) {
+                            let curChat = this;
+                            FB.api(url,
+                            function(respo) {
+                                //console.log(respo);
+                                
+                                curChat.messages.push(respo["data"]);
+                                if(respo["paging"]["next"] !== undefined) {
+                                    curChat.addAndCont(respo["paging"]["next"]);
+                                    //console.log("next");
+                                }
+                                else {
+                                    console.log("Finished Downloading!");
+                                    downloadText(curChat.participants, JSON.stringify(curChat.messages));
+                                }
+                            });
+                        }
+                        
+                        getChat() {
+                            let curChat = this;
+                            FB.api(this.id,
+                            function(res) {
+                                if (res && !res.error) {
+                                    if(curChat.participants == "") {
+                                        curChat.participants = getPeopleFromJSON(res["participants"]["data"])
+                                    }
+                                    
+                                    curChat.messages.push(res["messages"]);
+                                    if(res["messages"]["paging"]["next"] !== undefined) {
+                                        curChat.addAndCont(res["messages"]["paging"]["next"]);
+                                        //console.log("next");
+                                    }
+                                    else {
+                                        console.log("Finished Downloading!");
+                                        downloadText(curChat.participants, JSON.stringify(curChat.messages));
+                                    }
+                                }
+                            });	
+                        }
+                    }
+                    
+                    function downloadBasedOnId() {
+                        let text = textarea.value;
+                        let lines = text.split(/\r?\n/);
+                        
+                        for(i in lines) {
+                            console.log(lines[i]);
+                            let line = lines[i];
+                            
+                            //Personal chat id example t_cid.c.100000545252xxx:100001452450xxx
+                            if(line[0] === '1') {
+                                let chat = new Chat("", "t_cid.c." + line + ":" + "<YOUR_CHAT_ID>");
+                                chat.getChat();
+                                let chat2 = new Chat("", "t_cid.c.<YOUR_CHAT_ID>:" + line);
+                                chat2.getChat();
+                            }
+                            //Group chat id example t_cid.g.1406269782734xxx
+                            else {
+                                let chat = new Chat("", "t_cid.g." + line);
+                                chat.getChat();
+                            }
+                        }
+                    }
+                    
+                    //Downloads chat messages
+                    function getChat(i, participants) {
+                        var messages = [];
+                        var mes = "";
+                        
+                        console.log(chats[i]["message_count"]);
+                        wantnum = ~~(chats[i]["message_count"] / 100) + 1;
+                        console.log("Starting Download")
+                        //getChatFromAPI(i, 0);
+                        
+                        let c = new Chat(participants, i);
+                        c.getChat();
+                    }
+                    
+                    document.getElementById("textAreaButton").onclick = function() {downloadBasedOnId()};
+                    
+                    function getPeopleFromJSON(participants) {
+                        let people = "";
+                        //If it is a group chat
+                        if(participants.length > 2) {
+                            for(let j = 0; j < participants.length; j++) {
+                                if(selfname != participants[j]["name"]) {
+                                    people += participants[j]["name"];
+                                    if(j != participants.length - 2) {
+                                        people += ", ";
+                                    }
+                                }
+                            }
+                        }
+                        else if(participants.length == 2) {
+                            for(let j = 0; j < 2; j++)
+                                if(selfname != participants[j]["name"])
+                                    people = participants[j]["name"];
+                        }
+                        else {
+                            people = participants[0]["name"];
+                        }
+                        return people;
+                    }
+                    
+                    function addMessageCountWithData(data) {
+                        let tr = table.insertRow();
+                        let name = tr.insertCell();
+                        let count = tr.insertCell();
+                        let button = tr.insertCell();
+                        
+                        let id = data["id"];
+                        let people = "";
+                        chats[id] = data;
+                        
+                        people = getPeopleFromJSON(data["participants"]["data"])
+                    
+                        //Button to download chat
+                        var realbutton = document.createElement("button");
+                        realbutton.i = id;
+                        realbutton.people = people;
+                        realbutton.addEventListener("click", function() {
+                            getChat(this.i, this.people);
+                        });
+        
+                        name.appendChild(document.createTextNode(people));
+                        count.appendChild(document.createTextNode(data["message_count"]));
+                        button.appendChild(realbutton);
+                    }
+				}, {scope: 'read_mailbox'});
+			};
+			
+			(function(d, s, id){
+				var js, fjs = d.getElementsByTagName(s)[0];
+				if (d.getElementById(id)) {return;}
+				js = d.createElement(s); js.id = id;
+				js.src = "//connect.facebook.net/en_US/sdk.js";
+				fjs.parentNode.insertBefore(js, fjs);
+			}(document, 'script', 'facebook-jssdk'));
+            
+            function downloadText(fileName, text) {
+                let textFileAsBlob = new Blob([text], {type:"text/plain"});
+            
+                let element = document.createElement("a");
+                element.download = fileName;
+                element.href = window.URL.createObjectURL(textFileAsBlob);
+                
+                element.style.display = "none";
+                document.body.appendChild(element);
+                element.click();
+                document.body.removeChild(element);
+            }
+		</script>
+	</body>
+</html>
